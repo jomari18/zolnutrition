@@ -183,3 +183,9 @@
 /* Image panels remain dark in both themes; keep their text accents readable. */
 .auth-hero .eyebrow, .auth-hero h2 span, .onboarding-intro .eyebrow, .onboarding-intro h2 span, .calorie-hero .eyebrow, .target-card-hero .eyebrow { color: var(--hero-accent); }
 .target-card.rest .target-card-hero .eyebrow { color: var(--hero-blue); }
+
+.targets-page > .notice {
+  width: 100%;
+  max-width: none;
+  margin: 0 0 var(--space-20);
+}
