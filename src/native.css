@@ -1,0 +1,5 @@
+/* Capacitor contains the WebView within system bars; the keyboard resizes it. */
+html.native-android, .native-android body { overscroll-behavior-y: none; }
+.native-android .dialog { max-height: calc(100dvh - var(--space-24)); overflow-y: auto; overscroll-behavior: contain; }
+.native-android .sheet { max-height: calc(100dvh - var(--space-16)); }
+.native-android input, .native-android select { scroll-margin-block: var(--space-80); }
