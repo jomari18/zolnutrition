@@ -2,6 +2,9 @@
 
 A working app design preview based on the supplied ZolNutrition mockups, using React 19 + Vite 7 + the existing Supabase project. The dark Inter/Manrope design answers: your daily targets, what you have eaten, and what remains (or is over).
 
+## Live Demo
+[Open ZolNutrition](https://zolnutrition.netlify.app/)
+
 ## Design preview scope
 
 - Meal rows use aligned pencil/trash actions, 44px controls, tinted macro chips and a separate action row in narrow panels.
