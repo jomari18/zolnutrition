@@ -3,7 +3,7 @@ import { validateDisplayName } from "./displayName.js";
 import useAndroidBack from "./useAndroidBack";
 import { friendlyError } from "./errors";
 import React, { useState, useEffect, useRef, useId } from "react";
-import { sb, result } from "./client";
+import { sb, recoverySb, result } from "./client";
 import { number } from "./lib";
 import { Field } from "./ui";
 import Icon from "./Icon";
@@ -26,7 +26,7 @@ function PasswordField({ label, ...props }) {
   );
 }
 
-export default function Auth() {
+export default function Auth({ recovery, recoveryRevision, onRecoveryChange }) {
   const [mode, setMode] = useState(
       location.pathname.includes("register")
         ? "register"
@@ -42,13 +42,33 @@ export default function Auth() {
     [deadline, setDeadline] = useState(
       number(localStorage.getItem("zolnutrition_resend_deadline")),
     ),
-    [clock, setClock] = useState(Date.now());
+    [clock, setClock] = useState(Date.now()),
+    [recoveryDeadline, setRecoveryDeadline] = useState(0),
+    [code, setCode] = useState("");
+  const recovering = ["forgot", "recovery-code", "new-password"].includes(mode);
   useAndroidBack(() => {
-    if (busy) return true;
+    if (lock.current) return true;
     if (mode === "login") return false;
+    if (recovering) { leaveRecovery(mode === "forgot" ? "login" : "forgot"); return true; }
     setMode("login"); setMsg(""); return true;
   });
   const lock = useRef(false);
+  const formRef = useRef(null);
+  useEffect(() => {
+    if (recovering) {
+      formRef.current?.reset(); setCode(""); setMode("forgot");
+      setMsg("Your account session changed. Request and verify a new recovery code.");
+    }
+  }, [recoveryRevision]);
+  useEffect(() => {
+    const { data: { subscription } } = recoverySb.auth.onAuthStateChange((event, session) => {
+      if (recovery.sessionChanged(event, session)) {
+        formRef.current?.reset(); setCode(""); setMode("forgot");
+        setMsg("Your recovery session changed. Request and verify a new code.");
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [recovery]);
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 1000);
     const sync = () =>
@@ -59,11 +79,11 @@ export default function Auth() {
       window.removeEventListener("storage", sync);
     };
   }, []);
-  const wait = Math.max(0, Math.ceil((deadline - clock) / 1000));
+  const wait = Math.max(0, Math.ceil(((recovering ? recoveryDeadline : deadline) - clock) / 1000));
   const cooldown = (seconds = 60) => {
     const d = Date.now() + seconds * 1000;
-    localStorage.setItem("zolnutrition_resend_deadline", d);
-    setDeadline(d);
+    if (recovering) setRecoveryDeadline(d);
+    else { localStorage.setItem("zolnutrition_resend_deadline", d); setDeadline(d); }
     setClock(Date.now());
   };
   const run = async (fn) => {
@@ -74,22 +94,48 @@ export default function Auth() {
     try {
       await fn();
     } catch (e) {
+      if (mode === "new-password" && !recovery.verified && !recovery.passwordSaved) setMode("forgot");
       const m = e.message || "Something went wrong.";
       const w = m.match(/after\s+(\d+)\s+seconds?/i);
       if (w || e.status === 429) {
         cooldown(w ? Number(w[1]) : 60);
         setMsg("Please wait for the countdown before requesting another code.");
-      } else setMsg(friendlyError(e));
+      } else setMsg(recovery.passwordSaved ? "Password saved. We couldn't finish signing out. Retry to return to sign in." : friendlyError(e));
     } finally {
       lock.current = false;
       setBusy(false);
     }
   };
+  const leaveRecovery = next => run(async () => {
+    formRef.current?.reset(); setCode("");
+    await recovery.cancel();
+    setMode(next); setMsg("");
+    if (next === "login") onRecoveryChange(false);
+  });
+  const requestRecovery = () => run(async () => {
+    if (wait) return;
+    setCode("");
+    const message = await recovery.request(email);
+    cooldown(); setMode("recovery-code"); setMsg(message);
+  });
   const submit = (e) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
+    if (mode === "forgot") { requestRecovery(); return; }
     run(async () => {
-      if (mode === "register") {
+      if (mode === "recovery-code") {
+        const token = code; setCode("");
+        await recovery.verify(token);
+        setMode("new-password");
+      } else if (mode === "new-password") {
+        const password = f.get("password"), confirmation = f.get("confirm");
+        try {
+          if (recovery.passwordSaved) await recovery.finish();
+          else await recovery.changePassword(password, confirmation);
+        } finally { formRef.current?.reset(); }
+        setMode("login"); setCode(""); onRecoveryChange(false);
+        setMsg("Password changed. Sign in with your new password.");
+      } else if (mode === "register") {
         if (f.get("password") !== f.get("confirm"))
           throw Error("Passwords do not match.");
         const username = await checkRegistrationUsername(sb, f.get("username"));
@@ -158,15 +204,16 @@ export default function Auth() {
       <section className={`auth panel auth-card auth-${mode}`}>
       <div className="eyebrow">MEAL & NUTRITION TRACKING</div>
       <h1>
-        {mode === "register"
+        {mode === "forgot" ? "Reset your password" : mode === "recovery-code" ? "Enter recovery code" : mode === "new-password" ? "Choose a new password" : mode === "register"
           ? "Create account"
           : mode === "verify"
             ? "Verify your email"
             : "Welcome back"}
       </h1>
-      <p className="auth-description">{mode === "verify" ? "Enter the code from your newest signup email. Keep this page open while you check your inbox." : mode === "register" ? "Build a routine around your goals. Start with an account, then set your daily targets." : "Sign in to pick up where you left off."}</p>
+      <p className="auth-description">{mode === "forgot" ? "Enter your account email to request a password recovery code." : mode === "recovery-code" ? "Enter the complete code from your newest password recovery email. Keep this page open while you check your inbox." : mode === "new-password" ? "Use at least 8 characters. After saving, sign in again with your new password." : mode === "verify" ? "Enter the code from your newest signup email. Keep this page open while you check your inbox." : mode === "register" ? "Build a routine around your goals. Start with an account, then set your daily targets." : "Sign in to pick up where you left off."}</p>
       {mode === "verify" && <div className="verification-badge"><Icon name="saved" /><span>Check your inbox<br /><small>Use the complete code from your latest email.</small></span></div>}
-      <form key={mode} onSubmit={submit}>
+      <form key={mode} onSubmit={submit} ref={formRef}>
+        <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {mode === "register" && (
           <>
             <Field label="Full name" name="full" required maxLength="100" />
@@ -186,9 +233,16 @@ export default function Auth() {
           required
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          readOnly={mode === "new-password"}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (recovering) { recovery.clear(); setCode(""); setMsg(""); setMode("forgot"); }
+          }}
         />
-        {mode === "verify" ? (
+        {mode === "recovery-code" ? (
+          <Field label="Recovery code" name="code" inputMode="numeric" autoComplete="one-time-code"
+            pattern="[0-9]{6,10}" minLength="6" maxLength="10" required value={code} onChange={e => setCode(e.target.value)} />
+        ) : mode === "verify" ? (
           <Field
             label="Verification code"
             name="code"
@@ -199,37 +253,44 @@ export default function Auth() {
             maxLength="10"
             required
           />
-        ) : (
+        ) : mode !== "forgot" && !recovery.passwordSaved ? (
           <PasswordField
-            label="Password"
+            label={mode === "new-password" ? "New password" : "Password"}
             name="password"
             type="password"
-            minLength="6"
+            minLength={mode === "new-password" ? "8" : "6"}
             autoComplete={
-              mode === "register" ? "new-password" : "current-password"
+              mode === "register" || mode === "new-password" ? "new-password" : "current-password"
             }
             required
           />
-        )}
-        {mode === "register" && (
+        ) : null}
+        {(mode === "register" || mode === "new-password" && !recovery.passwordSaved) && (
           <PasswordField
-            label="Confirm password"
+            label={mode === "new-password" ? "Confirm new password" : "Confirm password"}
             name="confirm"
             autoComplete="new-password"
-            minLength="6"
+            minLength={mode === "new-password" ? "8" : "6"}
             required
           />
         )}
-        <button className="primary" disabled={busy}>
+        <button className="primary" disabled={busy || mode === "forgot" && wait > 0}>
           {busy
             ? "Please wait…"
+            : mode === "forgot" ? (wait ? `Send recovery code (${wait}s)` : "Send recovery code")
+            : mode === "recovery-code" ? "Verify recovery code"
+            : mode === "new-password" ? (recovery.passwordSaved ? "Return to sign in" : "Save new password")
             : mode === "register"
               ? "Create Account"
               : mode === "verify"
                 ? "Verify Email"
                 : "Sign In"}
         </button>
+        </fieldset>
       </form>
+      {mode === "recovery-code" && <button disabled={busy || wait > 0} onClick={requestRecovery}>
+        {wait ? `Resend recovery code (${wait}s)` : "Resend recovery code"}
+      </button>}
       {mode === "verify" && (
         <button
           disabled={busy || wait > 0}
@@ -254,8 +315,14 @@ export default function Auth() {
         </p>
       )}
       <div className="actions">
+        {mode === "login" && <button disabled={busy} onClick={() => {
+          formRef.current?.reset(); recovery.clear(); setCode(""); setMsg(""); setMode("forgot"); onRecoveryChange(true);
+        }}>Forgot password?</button>}
+        {mode === "new-password" && <button disabled={busy} onClick={() => leaveRecovery("forgot")}>Use another email</button>}
         <button
+          disabled={busy}
           onClick={() => {
+            if (recovering) { leaveRecovery("login"); return; }
             setMode(mode === "login" ? "register" : "login");
             setMsg("");
           }}
