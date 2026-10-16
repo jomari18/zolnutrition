@@ -59,6 +59,22 @@ The existing defaults are the project's public URL and publishable key. Never pu
 - A 5% weight-change reminder offers a new estimate. Nothing changes until you explicitly save targets.
 - Short CSS motion, animated counters/bars, skeletons, and reduced-motion support. No animation or chart dependency was added.
 
+## System design
+
+These diagrams were drawn from the app's actual database schema, roles and code paths.
+
+**Context diagram.** ZolNutrition as a single process, and the people and outside services it exchanges data with.
+
+![ZolNutrition context diagram](docs/diagrams/context-diagram.png)
+
+**Data flow diagram (Level 1).** The main processes, the data stores they read and write (grouped from the database tables), and the data that moves between them.
+
+![ZolNutrition data flow diagram](docs/diagrams/data-flow-diagram.png)
+
+**Flowchart: logging a meal.** The main workflow step by step, including decisions and error paths.
+
+![ZolNutrition flowchart](docs/diagrams/flowchart.png)
+
 ## Architecture and performance
 
 `Dashboard.jsx` composes smaller components. `useNutritionData` loads data with abort/stale-result protection and paginates server responses; `useMealActions` owns scoped mutations; `useFeedback` and `useUndoDelete` handle notices and delayed deletes. Meal/saved-food/saved-meal/weight mutations update local state from successful writes, avoiding full-history or food-library refetches. Explicit Reload data is available after errors and refreshes remote changes.
