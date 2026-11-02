@@ -14,7 +14,7 @@ export default function Notifications({ notices = [], dismiss, reload, pending, 
       </div>
     </div>)}
     {pending && <div className="notice undo feedback-toast" role="status" aria-atomic="true">
-      <span className="feedback-message">{pending.committing ? "Deleting…" : `${pending.label} removed. Undo within 5 seconds. Leaving now cancels deletion.`}</span>
+      <span className="feedback-message">{pending.committing ? "Deleting…" : `${pending.label} removed. Undo within 5 seconds. Other changes wait until then. Leaving now cancels deletion.`}</span>
       <button ref={undoButton} disabled={pending.committing} onClick={undo}>Undo</button>
     </div>}
   </div>;
